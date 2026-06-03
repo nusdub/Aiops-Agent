@@ -1,0 +1,76 @@
+services:
+  kubernetes-mcp:
+    build: .
+    image: kubernetes-aiops-agent:latest
+    container_name: kubernetes-aiops-mcp
+    restart: unless-stopped
+    command: ["python", "mcp_servers/kubernetes_server.py"]
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_KUBERNETES_PORT: 8010
+      MCP_PATH: /mcp
+      K8S_PROVIDER_MODE: ${K8S_PROVIDER_MODE:-demo}
+      K8S_NAMESPACE: ${K8S_NAMESPACE:-default}
+      KUBECONFIG: ${KUBECONFIG:-}
+    ports:
+      - "${MCP_KUBERNETES_PORT:-8010}:8010"
+    volumes:
+      - ${KUBECONFIG_HOST_PATH:-./.kube}:/home/aiops/.kube:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 8010), 5); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  app:
+    build: .
+    image: kubernetes-aiops-agent:latest
+    container_name: kubernetes-aiops-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 9900
+      PROJECT_ROOT: /app
+      STATIC_DIR: /app/static
+      UPLOAD_DIR: /app/uploads
+      LOG_DIR: /app/logs
+      DATA_DIR: /app/data
+      CHROMA_PERSIST_DIR: /app/data/chroma
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-*}
+      K8S_PROVIDER_MODE: ${K8S_PROVIDER_MODE:-demo}
+      K8S_NAMESPACE: ${K8S_NAMESPACE:-default}
+      KUBECONFIG: ${KUBECONFIG:-}
+      MCP_KUBERNETES_URL: http://kubernetes-mcp:8010/mcp
+    ports:
+      - "${APP_PORT:-9900}:9900"
+    volumes:
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+      - ./data/chroma:/app/data/chroma
+      - ${KUBECONFIG_HOST_PATH:-./.kube}:/home/aiops/.kube:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    depends_on:
+      kubernetes-mcp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9900/ready"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+networks:
+  default:
+    name: kubernetes-aiops-agent
